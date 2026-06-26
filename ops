@@ -2,47 +2,26 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
-st.set_page_config(layout="wide")
-st.title("📈 Stock Analyst AI - המנוע שלך")
+st.title("מנתח המניות האישי שלך")
+symbol = st.text_input("הזן סימול מניה:", "AMZN")
 
-ticker = st.sidebar.text_input("הכנס סימול מניה (למשל AMZN):", "AMZN")
-
-if st.sidebar.button("נתח מניה"):
-    stock = yf.Ticker(ticker)
-    info = stock.info
+if st.button("נתח"):
+    ticker = yf.Ticker(symbol)
+    info = ticker.info
     
-    # 1. ניתוח חוקים
-    cash = info.get('totalCash', 0)
-    debt = info.get('totalDebt', 0)
-    equity = info.get('bookValue', 0) * info.get('sharesOutstanding', 1)
+    # חישוב FCF לוגיקה משופרת
+    fcf = info.get('freeCashflow')
+    if fcf is None or fcf < 0:
+        st.warning("ה-FCF שלילי או לא זמין, משתמש ב-Operating Cash Flow במקום")
+        fcf = info.get('operatingCashflow', 0)
     
-    data = {
-        "חוק": ["מזומן > חוב", "חוב/הון < 0.8", "רווח גולמי > 40%", "רווח נקי > 20%"],
-        "סטטוס": [
-            "✅" if cash > debt else "❌",
-            "✅" if (debt/equity if equity > 0 else 999) < 0.8 else "❌",
-            "✅" if info.get('grossMargins', 0) > 0.4 else "❌",
-            "✅" if info.get('profitMargins', 0) > 0.2 else "❌"
-        ],
-        "ערך": [
-            f"{cash/1e9:.1f}B / {debt/1e9:.1f}B",
-            f"{debt/equity:.2f}" if equity > 0 else "N/A",
-            f"{info.get('grossMargins', 0)*100:.1f}%",
-            f"{info.get('profitMargins', 0)*100:.1f}%"
-        ]
-    }
+    # חישוב שווי פנימי
+    dcf = (fcf * 1.05) / (0.10 - 0.03) / info.get('sharesOutstanding', 1)
     
+    col1, col2 = st.columns(2)
+    col1.metric("שווי פנימי (DCF)", f"${dcf:.2f}")
+    col2.metric("מחיר נוכחי", f"${info.get('currentPrice', 0):.2f}")
+    
+    # טבלת חוקים
+    data = {"מדד": ["חוב/הון", "רווח גולמי"], "ערך": [info.get('debtToEquity', 0), f"{info.get('grossMargins', 0)*100:.1f}%"]}
     st.table(pd.DataFrame(data))
-    
-    # 2. חישוב DCF בסיסי
-    fcf = info.get('freeCashflow', 0)
-    if fcf:
-        dcf = (fcf * 1.05) / (0.10 - 0.03) / info.get('sharesOutstanding', 1)
-        st.metric("שווי פנימי משוער (DCF)", f"${dcf:.2f}")
-    else:
-        st.warning("לא ניתן לחשב DCF אוטומטי - חסר נתון תזרים")
-
-    st.write("### חדשות אחרונות")
-    news = stock.news
-    for item in news[:5]:
-        st.write(f"- [{item['title']}]({item['link']})")
