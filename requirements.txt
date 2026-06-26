@@ -3,4 +3,3 @@ yahooquery
 pandas
 numpy
 plotly
-requests
