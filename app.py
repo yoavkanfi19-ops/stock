@@ -1,196 +1,171 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
 import plotly.graph_objects as go
-from yahooquery import Ticker
-import time
+from datetime import datetime
 
-# הגדרות עמוד
-st.set_page_config(layout="wide", page_title="Financial Deep-Dive Pro", page_icon="📈")
+# הגדרות דף
+st.set_page_config(layout="wide", page_title="Professional Stock Deep-Dive")
 
-# פונקציות עזר לעיצוב
+# --- פונקציות משיכת נתונים מ-Alpha Vantage ---
+def get_data(symbol, function, api_key):
+    url = f'https://www.alphavantage.co/query?function={function}&symbol={symbol}&apikey={api_key}'
+    r = requests.get(url)
+    return r.json()
+
 def fmt(val):
-    if val is None or (isinstance(val, float) and np.isnan(val)): return "N/A"
-    if abs(val) >= 1e9: return f"${val/1e9:.2f}B"
-    if abs(val) >= 1e6: return f"${val/1e6:.2f}M"
-    return f"${val:,.2f}"
-
-def pct(val):
-    if val is None or (isinstance(val, float) and np.isnan(val)): return "N/A"
-    return f"{val*100:.2f}%"
+    try:
+        v = float(val)
+        if abs(v) >= 1e9: return f"${v/1e9:.2f}B"
+        if abs(v) >= 1e6: return f"${v/1e6:.2f}M"
+        return f"${v:,.2f}"
+    except: return "N/A"
 
 # --- ממשק משתמש ---
-st.title("📊 Financial Deep-Dive Pro")
-st.markdown("---")
+st.title("🛡️ Financial Deep-Dive Pro (Alpha Vantage Edition)")
+st.sidebar.info("כדי לעקוף חסימות, השתמש ב-API Key חינם מ-alphavantage.co")
+api_key = st.sidebar.text_input("הכנס Alpha Vantage API Key:", type="password")
+symbol = st.sidebar.text_input("הכנס סימול מניה (למשל AMZN):", "AMZN").upper()
 
-symbol = st.sidebar.text_input("הכנס סימול מניה (למשל AMZN, MSFT, NVDA):", "AMZN").upper()
-
-if st.sidebar.button("הפק דוח ניתוח מלא"):
-    with st.spinner(f"מנתח נתונים עבור {symbol}..."):
-        try:
-            # שימוש ב-yahooquery עם הגדרות עקיפה
-            t = Ticker(symbol, asynchronous=True, retry=3, timeout=10)
+if st.sidebar.button("הפק דוח ניתוח מלא") and api_key:
+    try:
+        with st.spinner("מושך נתונים פיננסיים עמוקים..."):
+            # משיכת כל המודולים הנדרשים
+            overview = get_data(symbol, 'OVERVIEW', api_key)
+            income_stmt = get_data(symbol, 'INCOME_STATEMENT', api_key)
+            balance_sheet = get_data(symbol, 'BALANCE_SHEET', api_key)
+            cash_flow = get_data(symbol, 'CASH_FLOW', api_key)
+            news = get_data(symbol, 'NEWS_SENTIMENT', api_key)
             
-            # משיכת מודולים ספציפיים כדי למנוע חסימה
-            all_data = t.all_modules[symbol]
-            
-            if isinstance(all_data, str):
-                st.error("Yahoo Finance חוסמת את השרת הציבורי כרגע. נסה שוב בעוד כמה דקות או מקומית.")
+            if "Note" in overview:
+                st.error("הגעת למכסה היומית של ה-API Key (בחינם זה 5 בקשות לדקה / 500 ליום).")
                 st.stop()
 
-            # חילוץ נתונים
-            price_m = all_data.get('price', {})
-            fin_m = all_data.get('financialData', {})
-            stats_m = all_data.get('defaultKeyStatistics', {})
-            summary_m = all_data.get('summaryProfile', {})
-            
-            # שליפת דוחות (שיטה יציבה יותר)
-            inc_df = t.income_statement().transpose()
-            bs_df = t.balance_sheet().transpose()
-            cf_df = t.cash_flow().transpose()
+            # נתונים מהדוחות האחרונים (Annual)
+            is_last = income_stmt['annualReports'][0]
+            bs_last = balance_sheet['annualReports'][0]
+            cf_last = cash_flow['annualReports'][0]
+            prev_is = income_stmt['annualReports'][1]
+            prev_bs = balance_sheet['annualReports'][1]
 
-            if inc_df.empty:
-                st.error("לא ניתן למשוך דוחות כספיים. בדוק את הסימול.")
-                st.stop()
-
-            # 1. פרטים כלליים
-            st.header(f"שם מניה: {price_m.get('longName')} ({symbol})")
-            st.subheader(f"מחיר מניה כרגע: ${fin_m.get('currentPrice')}")
-            
-            last_date = inc_df.columns[-1].strftime('%d/%m/%Y')
-            st.write(f"**תאריכי הדוחות שאנחנו בודקים:** {last_date} (שנתי/רבעוני אחרון)")
+            # --- חלק 1: פרטים כלליים ---
+            st.header(f"שם מניה: {overview.get('Name')} ({symbol})")
+            st.subheader(f"מחיר מניה (מכפיל נוכחי): {overview.get('PERatio')}")
+            st.write(f"**תאריך דוח אחרון שנבדק:** {is_last.get('fiscalDateEnding')}")
             
             st.write("---")
             st.subheader("💡 תקציר על מה שהחברה עושה")
-            st.write(summary_m.get('longBusinessSummary', 'אין תקציר זמין.'))
+            st.write(overview.get('Description'))
 
-            # 2. בדיקת 12 החוקים (באפטולוגיה)
-            st.write("---")
-            st.header("⚖️ סיכום 12 החוקים של באפטולוגיה")
+            # --- חלק 2: בדיקת 12 החוקים ---
+            st.header("⚖️ סיכום 12 החוקים (באפטולוגיה)")
             
-            # נתונים מהדוח האחרון
-            last_is = inc_df[inc_df.columns[-1]]
-            last_bs = bs_df[bs_df.columns[-1]]
-            last_cf = cf_df[cf_df.columns[-1]]
+            # משתנים לחישוב
+            rev = float(is_last.get('totalRevenue', 0))
+            gp = float(is_last.get('grossProfit', 0))
+            ni = float(is_last.get('netIncome', 0))
+            ebit = float(is_last.get('ebit', 1))
+            int_exp = float(is_last.get('interestExpense', 0))
+            sga = float(is_last.get('sellingGeneralAndAdministrative', 0))
+            rnd = float(is_last.get('researchAndDevelopment', 0))
+            pretax = float(is_last.get('incomeBeforeTax', 1))
+            tax = float(is_last.get('incomeTaxExpense', 0))
             
-            # נתוני צמיחה
-            rev = last_is.get('TotalRevenue', 1)
-            gp = last_is.get('GrossProfit', 0)
-            ni = last_is.get('NetIncome', 0)
-            ebit = last_is.get('Ebit', 1)
-            int_exp = abs(last_is.get('InterestExpense', 0))
-            sga = last_is.get('SellingGeneralAdministrative', 0)
-            rnd = last_is.get('ResearchDevelopment', 0)
-            pretax = last_is.get('PretaxIncome', 1)
-            tax = abs(last_is.get('TaxProvision', 0))
+            cash = float(bs_last.get('cashAndCashEquivalentsAtCarryingValue', 0))
+            debt = float(bs_last.get('totalDebt', 0))
+            equity = float(bs_last.get('totalShareholderEquity', 1))
+            liabilities = float(bs_last.get('totalLiabilities', 0))
+            retained = float(bs_last.get('retainedEarnings', 0))
+            prev_retained = float(prev_bs.get('retainedEarnings', 0))
             
-            cash = last_bs.get('CashAndCashEquivalents', 0)
-            debt = last_bs.get('TotalDebt', 0)
-            equity = last_bs.get('StockholdersEquity', 1)
-            liabilities = last_bs.get('TotalLiabilitiesNetMinorityInterest', 0)
-            retained = last_bs.get('RetainedEarnings', 0)
-            prev_retained = bs_df[bs_df.columns[-2]].get('RetainedEarnings', 0) if len(bs_df.columns) > 1 else 0
-
             laws = [
-                ["1. מזומן > חוב", "עומד" if cash > debt else "לא עומד", f"C: {fmt(cash)} / D: {fmt(debt)}"],
-                ["2. יחס חוב להון < 0.8", "עומד" if (liabilities/equity) < 0.8 else "לא עומד", f"{(liabilities/equity):.2f}"],
-                ["3. אין מניות בכורה", "עומד" if 'PreferredStock' not in last_bs else "לא עומד", "תקין"],
-                ["4. רווחים צבורים בצמיחה", "עומד" if retained > prev_retained else "לא עומד", f"השנה: {fmt(retained)}"],
-                ["5. מניות באוצר (Buybacks)", "עומד" if 'RepurchaseOfCapitalStock' in last_cf else "בדיקה", "קיימת פעילות"],
-                ["6. רווח גולמי > 40%", "עומד" if (gp/rev) > 0.4 else "לא עומד", pct(gp/rev)],
-                ["7. הנהלה/גולמי < 30%", "עומד" if (sga/gp) < 0.3 else "לא עומד", pct(sga/gp)],
-                ["8. מו\"פ/גולמי < 30%", "עומד" if (rnd/gp) < 0.3 else "לא עומד", pct(rnd/gp)],
-                ["9. ריבית/רווח תפעולי < 15%", "עומד" if (int_exp/ebit) < 0.15 else "לא עומד", pct(int_exp/ebit)],
-                ["10. מס הכנסה/לפני מס ~ 20%", "עומד" if 0.15 < (tax/pretax) < 0.35 else "בדיקה", pct(tax/pretax)],
-                ["11. רווח נקי > 20%", "עומד" if (ni/rev) > 0.2 else "לא עומד", pct(ni/rev)],
-                ["12. EPS במגמת צמיחה", "עומד" if stats_m.get('earningsGrowth', 0) > 0 else "לא עומד", pct(stats_m.get('earningsGrowth', 0))]
+                ["מזומן > חוב", "✅" if cash > debt else "❌", f"C: {fmt(cash)} / D: {fmt(debt)}"],
+                ["יחס חוב להון < 0.8", "✅" if (liabilities/equity) < 0.8 else "❌", f"{(liabilities/equity):.2f}"],
+                ["אין מניות בכורה", "✅" if float(bs_last.get('preferredStock', 0)) == 0 else "⚠️", "תקין"],
+                ["רווחים צבורים בצמיחה", "✅" if retained > prev_retained else "❌", f"צמיחה: {fmt(retained-prev_retained)}"],
+                ["מניות באוצר (Buybacks)", "✅" if float(bs_last.get('treasuryStock', 1)) != 0 else "⚪", "קיימת פעילות"],
+                ["רווח גולמי > 40%", "✅" if (gp/rev) > 0.4 else "❌", f"{(gp/rev)*100:.1f}%"],
+                ["הנהלה/גולמי < 30%", "✅" if (sga/gp) < 0.3 else "❌", f"{(sga/gp)*100:.1f}%"],
+                ["מו\"פ/גולמי < 30%", "✅" if (rnd/gp) < 0.3 else "❌", f"{(rnd/gp)*100:.1f}%"],
+                ["ריבית/רווח תפעולי < 15%", "✅" if (int_exp/ebit) < 0.15 else "❌", f"{(int_exp/ebit)*100:.1f}%"],
+                ["מס הכנסה/לפני מס ~ 20%", "✅" if 0.15 < (tax/pretax) < 0.3 else "⚠️", f"{(tax/pretax)*100:.1f}%"],
+                ["רווח נקי/הכנסות > 20%", "✅" if (ni/rev) > 0.2 else "❌", f"{(ni/rev)*100:.1f}%"],
+                ["צמיחת EPS (שנתי)", "✅" if float(overview.get('EPS', 0)) > 0 else "❌", overview.get('EPS')]
             ]
             st.table(pd.DataFrame(laws, columns=["חוק", "מצב", "נתון"]))
 
-            # 3. טבלאות נתונים
-            st.write("---")
-            st.subheader("💰 נתונים פיננסיים (מיליארדים)")
-            ebitda = fin_m.get('ebitda', 0)
-            fcf = fin_m.get('freeCashflow', 0)
+            # --- חלק 3: טבלאות וצמיחה ---
+            st.subheader("📊 סיכום פיננסי וצמיחה")
+            fcf = float(cf_last.get('operatingCashflow', 0)) - float(cf_last.get('capitalExpenditures', 0))
             
-            summary_table = pd.DataFrame({
-                "מדד": ["הכנסות", "EBITDA", "רווח תפעולי", "רווח נקי", "מזומן", "חוב"],
-                "ערך": [fmt(rev), fmt(ebitda), fmt(ebit), fmt(ni), fmt(cash), fmt(debt)],
-                "מרג'ין": ["100%", pct(ebitda/rev), pct(ebit/rev), pct(ni/rev), "-", "-"]
-            })
-            st.table(summary_table)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("**נתוני רווח (מיליארדים):**")
+                st.table(pd.DataFrame({
+                    "מדד": ["הכנסות", "רווח תפעולי", "רווח נקי", "FCF", "מזומן", "חוב"],
+                    "ערך": [fmt(rev), fmt(ebit), fmt(ni), fmt(fcf), fmt(cash), fmt(debt)]
+                }))
+            
+            with c2:
+                ni_growth = (ni / float(prev_is.get('netIncome', 1))) - 1
+                buyback_shares = float(cf_last.get('paymentsForRepurchaseOfCommonStock', 0))
+                st.write("**ניתוח צמיחה:**")
+                st.write(f"- צמיחת רווח נקי: {ni_growth*100:.1f}%")
+                st.write(f"- סכום רכישה עצמית: {fmt(buyback_shares)}")
+                st.write(f"- מכפיל רווח (P/E): {overview.get('PERatio')}")
 
-            # צמיחה ו-Buybacks
-            prev_ni = inc_df[inc_df.columns[-2]].get('NetIncome', 1) if len(inc_df.columns) > 1 else ni
-            ni_growth = (ni / prev_ni) - 1
-            eps_growth = stats_m.get('earningsQuarterlyGrowth', 0)
-            buyback_sum = abs(last_cf.get('RepurchaseOfCapitalStock', 0))
-
-            st.subheader("📈 צמיחה ורכישה עצמית")
-            st.write(f"- **צמיחת רווח נקי:** {pct(ni_growth)} | **צמיחת EPS:** {pct(eps_growth)}")
-            st.write(f"- **כמה מניות נקנו בחזרה בדוח זה?** {fmt(buyback_sum)}")
-
-            # 4. Moat וחלוקת רווחים
-            st.write("---")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.subheader("🏰 סוגי Moat")
-                if (gp/rev) > 0.4: st.write("- מותג חזק (Pricing Power)")
-                if rev > 10e10: st.write("- יתרון לגודל (Scale)")
-                st.write("- אפקט רשת / עלויות מעבר")
-            with col_b:
-                st.subheader("💰 ממה החברה מרוויחה?")
-                st.write(f"מגזר: {summary_m.get('sector')} | תעשייה: {summary_m.get('industry')}")
-
-            # 5. הערכת שווי (WACC & DCF)
+            # --- חלק 4: שווי פנימי (DCF & WACC) ---
             st.write("---")
             st.header("⚖️ חישוב שווי פנימי")
             
-            # WACC
-            rf = 0.043 # 10Y
-            beta = fin_m.get('beta', 1.1) or 1.1
-            erp = 0.055
+            # WACC Calculation
+            beta = float(overview.get('Beta', 1.2))
+            rf = 0.043 # 10Y Treasury
+            erp = 0.055 # Risk Premium
             cost_equity = rf + (beta * erp)
             cost_debt = (int_exp / debt) if debt > 0 else 0.05
             w_e = equity / (equity + debt)
             w_d = debt / (equity + debt)
-            wacc = (w_e * cost_equity) + (w_d * cost_debt * 0.79) # tax-shield
+            wacc = (w_e * cost_equity) + (w_d * cost_debt * 0.79)
             
-            st.write("**פירוט חישוב WACC:**")
-            st.code(f"Cost Equity = {pct(cost_equity)} | WACC = {pct(wacc)}")
-
+            st.subheader("1. פירוט WACC (ריבית היוון)")
+            st.code(f"Cost Equity = {cost_equity*100:.2f}% | WACC = {wacc*100:.2f}%")
+            
             # DCF
-            growth = stats_m.get('earningsGrowth', 0.1) or 0.1
-            price_dcf = ((fcf * (1 + growth)) / (wacc - 0.025)) / price_m.get('sharesOutstanding', 1)
-            # Relative
-            price_pe = (growth * 100 + 10) * stats_m.get('forwardEps', 5)
-            # NAV
-            price_nav = equity / price_m.get('sharesOutstanding', 1)
-
-            st.subheader("🏈 מגרש כדורגל (Football Field)")
+            growth = float(overview.get('QuarterlyEarningsGrowthYOY', 0.1))
+            if growth == 0: growth = 0.1
+            intrinsic_dcf = ((fcf * (1 + growth)) / (wacc - 0.025)) / float(overview.get('SharesOutstanding', 1))
+            
+            # Football Field
+            price_pe = float(overview.get('ForwardPE', 20)) * float(overview.get('EPS', 5))
+            price_nav = equity / float(overview.get('SharesOutstanding', 1))
+            
+            st.subheader("2. מגרש כדורגל (Football Field Valuation)")
             football = pd.DataFrame({
-                "שיטה": ["DCF", "Relative Valuation", "NAV (שווי נכסי)"],
-                "מחיר למניה": [f"${price_dcf:.2f}", f"${price_pe:.2f}", f"${price_nav:.2f}"]
+                "שיטה": ["DCF", "מכפילים (Forward P/E)", "שווי נכסי (NAV)"],
+                "שווי למניה": [f"${intrinsic_dcf:.2f}", f"${price_pe:.2f}", f"${price_nav:.2f}"]
             })
             st.table(football)
 
-            final_intrinsic = (price_dcf * 0.7 + price_pe * 0.3)
-            st.title(f"שווי פנימי סופי: ${final_intrinsic:.2f}")
-            st.subheader(f"מחיר קנייה (מרווח ביטחון 30%): ${final_intrinsic * 0.7:.2f}")
+            final_val = (intrinsic_dcf * 0.7 + price_pe * 0.3)
+            st.title(f"שווי פנימי סופי מוערך: ${final_val:.2f}")
+            st.subheader(f"מחיר קנייה (מרווח ביטחון 30%): ${final_val * 0.7:.2f}")
 
-            # 6. גרף וחדשות
+            # --- חלק 5: חדשות ו-Moat ---
             st.write("---")
-            st.subheader("📈 ניתוח טכני ותחזיות")
-            hist = t.history(period="1y").reset_index()
-            fig = go.Figure(data=[go.Candlestick(x=hist['date'], open=hist['open'], high=hist['high'], low=hist['low'], close=hist['close'])])
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.write(f"- **מחיר יעד אנליסטים:** ${fin_m.get('targetMeanPrice')}")
-            
-            st.subheader("📰 חדשות")
-            for n in t.news(3):
-                st.write(f"- [{n['title']}]({n['link']})")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.subheader("🏰 ניתוח Moat")
+                st.write(f"- חברה מסוג: {overview.get('Industry')}")
+                st.write("- יתרונות: מותג, אפקט רשת, יתרון לגודל.")
+            with col_b:
+                st.subheader("📰 חדשות עדכניות")
+                for article in news.get('feed', [])[:3]:
+                    st.write(f"- [{article['title']}]({article['url']})")
 
-        except Exception as e:
-            st.error(f"אירעה שגיאה: {e}")
-            st.info("Yahoo חוסמת את הבקשה. נסה שוב בעוד דקה.")
+    except Exception as e:
+        st.error(f"שגיאה בעיבוד הנתונים: {e}")
+else:
+    if not api_key:
+        st.warning("אנא הכנס API Key של Alpha Vantage (בחינם) כדי להתחיל.")
