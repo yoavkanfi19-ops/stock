@@ -2,3 +2,5 @@ streamlit
 pandas
 yfinance
 requests
+requests-cache
+requests-ratelimiter
