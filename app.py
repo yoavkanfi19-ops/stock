@@ -8,7 +8,6 @@ import time
 # הגדרות עיצוב
 st.set_page_config(page_title="Financial Deep-Dive Pro", layout="wide")
 
-# פונקציה לטעינת נתונים עם שמירה מקומית (מניעת חסימות)
 def get_stock_data(symbol):
     filename = f"{symbol}.json"
     if os.path.exists(filename) and (time.time() - os.path.getmtime(filename) < 3600):
@@ -47,29 +46,24 @@ if st.sidebar.button("הפק דוח ניתוח"):
         ]
         st.table(pd.DataFrame(rules))
         
-        # --- חלק 3: טבלת נתונים פיננסיים ---
-        st.subheader("💰 סיכום פיננסי")
-        fin_data = {
-            "מדד": ["הכנסות שנתיות", "תזרים מזומנים חופשי (FCF)", "מזומן בקופה", "סך חוב", "רווח למניה (EPS)"],
-            "ערך": [f"${data.get('totalRevenue', 0)/1e9:.1f}B", f"${data.get('freeCashflow', 0)/1e9:.1f}B", 
-                    f"${data.get('totalCash', 0)/1e9:.1f}B", f"${data.get('totalDebt', 0)/1e9:.1f}B", f"${data.get('trailingEps', 0):.2f}"]
-        }
-        st.table(pd.DataFrame(fin_data))
-        
-        # --- חלק 4: חישוב DCF ---
+        # --- חלק 3: חישוב DCF חכם ---
         st.subheader("⚖️ מודל הערכת שווי (DCF)")
-        growth = st.slider("צמיחה שנתית מוערכת (%)", 5, 25, 10) / 100
-        wacc = st.slider("ריבית היוון (WACC) (%)", 7, 15, 10) / 100
+        
+        # בחירת צמיחה
+        growth_perc = st.slider("צמיחה שנתית מוערכת (%)", 1, 15, 8)
+        growth = growth_perc / 100
+        
+        # הגדרת ריבית היוון דינמית (תמיד גדולה מהצמיחה ב-2% לפחות)
+        min_wacc = growth_perc + 2
+        wacc_perc = st.slider("ריבית היוון (WACC) (%)", min_wacc, 20, max(min_wacc + 3, 10))
+        wacc = wacc_perc / 100
         
         fcf = data.get('freeCashflow', 0)
         shares = data.get('sharesOutstanding', 1)
         
-        if fcf and shares and wacc > growth:
+        if fcf and shares:
             terminal_val = (fcf * (1 + growth)) / (wacc - growth)
             intrinsic_val = terminal_val / shares
-            
-            st.write(f"**פירוט החישוב:**")
-            st.code(f"שווי טרמינלי = (FCF * (1+g)) / (WACC - g)")
             
             st.metric("שווי פנימי למניה (Intrinsic Value)", f"${intrinsic_val:,.2f}")
             
@@ -79,7 +73,7 @@ if st.sidebar.button("הפק דוח ניתוח"):
             else:
                 st.error("הערכת שווי: המניה נסחרת מעל השווי הפנימי המשוער.")
         else:
-            st.warning("החישוב לא אפשרי: וודא שריבית ההיוון (WACC) גבוהה מקצב הצמיחה.")
+            st.warning("אין נתוני תזרים מזומנים זמינים לחישוב.")
             
     except Exception as e:
         st.error(f"שגיאה בניתוח: {e}")
