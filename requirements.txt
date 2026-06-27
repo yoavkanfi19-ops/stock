@@ -1,6 +1,5 @@
 streamlit
+yahooquery
 pandas
-yfinance
-requests
-requests-cache
-requests-ratelimiter
+numpy
+plotly
