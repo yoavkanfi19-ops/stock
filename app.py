@@ -95,7 +95,7 @@ if st.sidebar.button("הפק דוח ניתוח מלא") and api_key:
             
             laws = [
                 ["מזומן > חוב", "✅" if cash > debt else "❌", f"C: {fmt(cash)} / D: {fmt(debt)}"],
-                ["יחס חוב להון < 0.8", "✅" if (liabilities/equity) < 0.8 else "❌", f"{(liabilities/equity):.2f}"],
+                ["יחס חוב להון < 0.8", "✅" if equity > 0 and (liabilities/equity) < 0.8 else "❌", f"{(liabilities/equity):.2f}" if equity > 0 else "N/A"],
                 ["אין מניות בכורה", "✅" if safe_float(bs_last.get('preferredStock')) == 0 else "⚠️", "תקין"],
                 ["רווחים צבורים בצמיחה", "✅" if retained > prev_retained else "❌", f"צמיחה: {fmt(retained-prev_retained)}"],
                 ["רווח גולמי > 40%", "✅" if rev > 0 and (gp/rev) > 0.4 else "❌", f"{(gp/rev)*100:.1f}%" if rev > 0 else "N/A"],
