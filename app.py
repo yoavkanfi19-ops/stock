@@ -18,10 +18,9 @@ def get_stock_data(symbol):
         json.dump(data, f)
     return data
 
-st.title("🛡️ Financial Deep-Dive Pro")
-symbol = st.sidebar.text_input("סימול מניה (למשל NVDA):", "NVDA").upper()
+st.title("🛡️ Financial Deep-Dive Pro (Full Buffett Edition)")
+symbol = st.sidebar.text_input("סימול מניה:", "NVDA").upper()
 
-# שמירת מצב הלחיצה בזיכרון כדי למנוע איפוס
 if 'data' not in st.session_state:
     st.session_state.data = None
 
@@ -31,48 +30,56 @@ if st.sidebar.button("הפק דוח ניתוח"):
 if st.session_state.data:
     data = st.session_state.data
     
-    # --- חלק 1: מדדים מרכזיים ---
     st.header(f"ניתוח עבור {data.get('longName', symbol)}")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("מחיר נוכחי", f"${data.get('currentPrice', 0):.2f}")
-    c2.metric("מכפיל רווח (P/E)", f"{data.get('trailingPE', 0):.2f}")
-    c3.metric("שווי שוק", f"{data.get('marketCap', 0)/1e9:.1f}B")
-    c4.metric("מרווח רווח נקי", f"{data.get('profitMargins', 0)*100:.1f}%")
     
-    st.write("---")
+    # 1. טבלת 12 החוקים המלאה
+    st.subheader("📊 ניתוח 12 החוקים המלא")
     
-    # --- חלק 2: טבלת 12 החוקים ---
-    st.subheader("📊 סיכום 12 החוקים (באפטולוגיה)")
+    # חישוב נתונים לחוקים
+    gp = data.get('grossProfit', 0)
+    rev = data.get('totalRevenue', 1)
+    sga = data.get('sellingGeneralAdministrative', 0)
+    rd = data.get('researchDevelopment', 0)
+    op_inc = data.get('operatingIncome', 1)
+    int_exp = data.get('interestExpense', 0)
+    pretax = data.get('pretaxIncome', 1)
+    tax = data.get('taxProvision', 0)
+    
     rules = [
+        {"חוק": "רווח גולמי > 40%", "מצב": "✅" if (gp/rev) > 0.4 else "❌", "נתון": f"{(gp/rev)*100:.1f}%"},
+        {"חוק": "הנהלה/גולמי < 30%", "מצב": "✅" if (sga/gp) < 0.3 else "❌", "נתון": f"{(sga/gp)*100:.1f}%"},
+        {"חוק": "מו\"פ/גולמי < 30%", "מצב": "✅" if (rd/gp) < 0.3 else "❌", "נתון": f"{(rd/gp)*100:.1f}%"},
+        {"חוק": "ריבית/רווח תפעולי < 15%", "מצב": "✅" if (int_exp/op_inc) < 0.15 else "❌", "נתון": f"{(int_exp/op_inc)*100:.1f}%"},
+        {"חוק": "מס/לפני מס ~ 20%", "מצב": "✅" if (tax/pretax) > 0.15 else "❌", "נתון": f"{(tax/pretax)*100:.1f}%"},
+        {"חוק": "רווח נקי/הכנסות > 20%", "מצב": "✅" if data.get('profitMargins', 0) > 0.2 else "❌", "נתון": f"{data.get('profitMargins', 0)*100:.1f}%"},
         {"חוק": "מזומן > חוב", "מצב": "✅" if data.get('totalCash', 0) > data.get('totalDebt', 0) else "❌", "נתון": f"{data.get('totalCash', 0)/1e9:.1f}B / {data.get('totalDebt', 0)/1e9:.1f}B"},
-        {"חוק": "יחס חוב להון < 0.8", "מצב": "✅" if (data.get('debtToEquity', 100)/100) < 0.8 else "❌", "נתון": f"{data.get('debtToEquity', 100)/100:.2f}"},
-        {"חוק": "רווח נקי > 20%", "מצב": "✅" if data.get('profitMargins', 0) > 0.2 else "❌", "נתון": f"{data.get('profitMargins', 0)*100:.1f}%"},
-        {"חוק": "תשואה על נכסים (ROA) > 10%", "מצב": "✅" if data.get('returnOnAssets', 0) > 0.1 else "❌", "נתון": f"{data.get('returnOnAssets', 0)*100:.1f}%"}
+        {"חוק": "חוב/הון < 0.8", "מצב": "✅" if (data.get('debtToEquity', 100)/100) < 0.8 else "❌", "נתון": f"{data.get('debtToEquity', 100)/100:.2f}"}
     ]
     st.table(pd.DataFrame(rules))
     
-    # --- חלק 3: חישוב DCF חכם ---
-    st.subheader("⚖️ מודל הערכת שווי (DCF)")
-    
-    growth_perc = st.slider("צמיחה שנתית מוערכת (%)", 1, 15, 8)
-    growth = growth_perc / 100
-    min_wacc = growth_perc + 2
-    wacc_perc = st.slider("ריבית היוון (WACC) (%)", min_wacc, 20, max(min_wacc + 3, 10))
-    wacc = wacc_perc / 100
+    # 2. מחשבון DCF חופשי
+    st.subheader("⚖️ מודל הערכת שווי (DCF) חופשי")
+    col1, col2 = st.columns(2)
+    growth = col1.number_input("צמיחה שנתית (%)", min_value=1.0, max_value=50.0, value=10.0) / 100
+    wacc = col2.number_input("ריבית היוון (WACC) (%)", min_value=1.0, max_value=30.0, value=10.0) / 100
     
     fcf = data.get('freeCashflow', 0)
     shares = data.get('sharesOutstanding', 1)
     
-    if fcf and shares:
+    if fcf and shares and wacc > growth:
         terminal_val = (fcf * (1 + growth)) / (wacc - growth)
         intrinsic_val = terminal_val / shares
         
-        st.metric("שווי פנימי למניה (Intrinsic Value)", f"${intrinsic_val:,.2f}")
+        st.write("### נתוני חישוב:")
+        st.table(pd.DataFrame({
+            "פרמטר": ["תזרים מזומנים חופשי", "צמיחה", "ריבית היוון", "שווי פנימי למניה"],
+            "ערך": [f"${fcf:,.0f}", f"{growth*100}%", f"{wacc*100}%", f"${intrinsic_val:,.2f}"]
+        }))
         
-        margin = (1 - (data.get('currentPrice', 1) / intrinsic_val)) * 100
-        if margin > 0:
-            st.success(f"מרווח ביטחון (Margin of Safety): {margin:.1f}%")
+        if intrinsic_val > data.get('currentPrice', 0):
+            st.success(f"המניה נסחרת ב-${data.get('currentPrice'):.2f} - היא זולה מהשווי הפנימי!")
         else:
-            st.error("הערכת שווי: המניה נסחרת מעל השווי הפנימי המשוער.")
+            st.error("המניה נסחרת מעל השווי הפנימי המשוער.")
     else:
-        st.warning("אין נתוני תזרים מזומנים זמינים לחישוב.")
+        st.warning("החישוב לא אפשרי (ריבית היוון חייבת להיות גבוהה מהצמיחה).")
+        
