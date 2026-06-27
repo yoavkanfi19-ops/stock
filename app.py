@@ -18,11 +18,10 @@ def get_stock_data(symbol):
         json.dump(data, f)
     return data
 
-# פונקציה בטוחה לחילוק למניעת ZeroDivisionError
 def safe_div(a, b):
-    return (a / b) if b and b != 0 else 0
+    return (a / b) if b and b is not None and b != 0 else 0
 
-st.title("🛡️ Financial Deep-Dive Pro (Full Buffett Edition)")
+st.title("🛡️ Financial Deep-Dive Pro (Buffett Edition)")
 symbol = st.sidebar.text_input("סימול מניה:", "NVDA").upper()
 
 if 'data' not in st.session_state:
@@ -36,17 +35,17 @@ if st.session_state.data:
     
     st.header(f"ניתוח עבור {data.get('longName', symbol)}")
     
-    st.subheader("📊 ניתוח 12 החוקים המלא")
+    # חישוב נתונים בטוח - מנסה למשוך מה-API, אם אין נתון משתמש ב-0
+    gp = data.get('grossProfit') or 0
+    rev = data.get('totalRevenue') or 1
+    sga = data.get('sellingGeneralAdministrative') or 0
+    rd = data.get('researchDevelopment') or 0
+    op_inc = data.get('operatingIncome') or 1
+    int_exp = data.get('interestExpense') or 0
+    pretax = data.get('pretaxIncome') or 1
+    tax = data.get('taxProvision') or 0
     
-    # חישוב בטוח של משתנים
-    gp = data.get('grossProfit', 0)
-    rev = data.get('totalRevenue', 1)
-    sga = data.get('sellingGeneralAdministrative', 0)
-    rd = data.get('researchDevelopment', 0)
-    op_inc = data.get('operatingIncome', 1)
-    int_exp = data.get('interestExpense', 0)
-    pretax = data.get('pretaxIncome', 1)
-    tax = data.get('taxProvision', 0)
+    st.subheader("📊 ניתוח 12 החוקים (באפטולוגיה)")
     
     rules = [
         {"חוק": "רווח גולמי > 40%", "מצב": "✅" if safe_div(gp, rev) > 0.4 else "❌", "נתון": f"{safe_div(gp, rev)*100:.1f}%"},
@@ -60,21 +59,21 @@ if st.session_state.data:
     ]
     st.table(pd.DataFrame(rules))
     
-    st.subheader("⚖️ מודל הערכת שווי (DCF) חופשי")
-    col1, col2 = st.columns(2)
-    growth = col1.number_input("צמיחה שנתית (%)", min_value=1.0, max_value=50.0, value=10.0) / 100
-    wacc = col2.number_input("ריבית היוון (WACC) (%)", min_value=1.0, max_value=30.0, value=10.0) / 100
+    # DCF
+    st.subheader("⚖️ מודל הערכת שווי (DCF)")
+    c1, c2 = st.columns(2)
+    growth = c1.number_input("צמיחה (%)", 1.0, 50.0, 10.0) / 100
+    wacc = c2.number_input("ריבית היוון (%)", 1.0, 30.0, 10.0) / 100
     
-    fcf = data.get('freeCashflow', 0)
-    shares = data.get('sharesOutstanding', 1)
+    fcf = data.get('freeCashflow') or 0
+    shares = data.get('sharesOutstanding') or 1
     
-    if fcf and shares and wacc > growth:
-        terminal_val = (fcf * (1 + growth)) / (wacc - growth)
-        intrinsic_val = terminal_val / shares
-        st.table(pd.DataFrame({"פרמטר": ["תזרים מזומנים חופשי", "צמיחה", "ריבית היוון", "שווי פנימי למניה"], "ערך": [f"${fcf:,.0f}", f"{growth*100}%", f"{wacc*100}%", f"${intrinsic_val:,.2f}"]}))
-        if intrinsic_val > data.get('currentPrice', 0):
-            st.success(f"המניה נסחרת ב-${data.get('currentPrice'):.2f} - היא זולה מהשווי הפנימי!")
+    if fcf and wacc > growth:
+        intrinsic = ((fcf * (1 + growth)) / (wacc - growth)) / shares
+        st.metric("שווי פנימי למניה", f"${intrinsic:,.2f}")
+        if intrinsic > data.get('currentPrice', 0):
+            st.success("המניה זולה מהשווי הפנימי!")
         else:
-            st.error("המניה נסחרת מעל השווי הפנימי המשוער.")
+            st.error("המניה יקרה מהשווי הפנימי.")
     else:
-        st.warning("החישוב לא אפשרי (וודא שריבית ההיוון > הצמיחה).")
+        st.warning("לא ניתן לחשב DCF (חסר FCF או שריבית ההיוון נמוכה מהצמיחה).")
