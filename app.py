@@ -69,7 +69,7 @@ if st.sidebar.button("הפק דוח ניתוח"):
             intrinsic_val = terminal_val / shares
             
             st.write(f"**פירוט החישוב:**")
-            st.code(f"שווי טרמינלי = (FCF * (1+g)) / (WACC - g) = ({fcf:,.0f} * 1.{int(growth*100)}) / ({wacc} - {growth})")
+            st.code(f"שווי טרמינלי = (FCF * (1+g)) / (WACC - g)")
             
             st.metric("שווי פנימי למניה (Intrinsic Value)", f"${intrinsic_val:,.2f}")
             
@@ -83,12 +83,3 @@ if st.sidebar.button("הפק דוח ניתוח"):
             
     except Exception as e:
         st.error(f"שגיאה בניתוח: {e}")
-```
-
-### מה הצעד הבא?
-אחרי שתעלה את זה:
-1. תלחץ על **Reboot** ב-Streamlit.
-2. הנתונים יוצגו בטבלאות מסודרות.
-3. השגיאה "Division by zero" תתוקן על ידי בדיקה לוגית (`wacc > growth`).
-
-**מה אתה רוצה להוסיף עכשיו?** (למשל: גרף טכני, חדשות, או השוואה מול מניה מתחרה?)
