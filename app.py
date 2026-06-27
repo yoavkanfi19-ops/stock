@@ -26,7 +26,6 @@ if st.sidebar.button("נתח מניה"):
     try:
         data = get_stock_data(symbol)
         
-        # --- חלק 1: מדדים ---
         c1, c2, c3 = st.columns(3)
         c1.metric("מחיר נוכחי", f"${data.get('currentPrice', 0):.2f}")
         c2.metric("מכפיל רווח", f"{data.get('trailingPE', 0):.2f}")
@@ -34,7 +33,6 @@ if st.sidebar.button("נתח מניה"):
         
         st.write("---")
         
-        # --- חלק 2: 12 החוקים (טבלה) ---
         st.subheader("📊 ניתוח 12 החוקים (באפטולוגיה)")
         rules_data = [
             {"חוק": "רווח נקי > 20%", "מצב": "✅" if data.get('profitMargins', 0) > 0.2 else "❌", "נתון": f"{data.get('profitMargins', 0)*100:.1f}%"},
@@ -43,15 +41,15 @@ if st.sidebar.button("נתח מניה"):
         ]
         st.table(pd.DataFrame(rules_data))
         
-        # --- חלק 3: DCF מקצועי ---
         st.subheader("⚖️ ניתוח שווי פנימי (DCF)")
-        growth = st.slider("צמיחה שנתית צפויה (%)", 5, 25, 10) / 100
-        discount_rate = st.slider("ריבית היוון (WACC) (%)", 5, 15, 10) / 100
+        growth = st.slider("צמיחה שנתית צפויה (%)", 1, 20, 10) / 100
+        discount_rate = st.slider("ריבית היוון (WACC) (%)", 6, 20, 10) / 100
         
         fcf = data.get('freeCashflow', 0)
         shares = data.get('sharesOutstanding', 1)
         
-        if fcf and shares:
+        # הגנה מפני חילוק באפס
+        if fcf and shares and discount_rate > growth:
             terminal_val = (fcf * (1 + growth)) / (discount_rate - growth)
             intrinsic_val = terminal_val / shares
             
@@ -66,6 +64,8 @@ if st.sidebar.button("נתח מניה"):
                 st.success(f"מרווח ביטחון (Margin of Safety): {margin:.1f}%")
             else:
                 st.error("המניה נסחרת מעל השווי הפנימי המשוער.")
+        elif discount_rate <= growth:
+            st.error("ריבית ההיוון חייבת להיות גבוהה משיעור הצמיחה כדי לבצע חישוב DCF תקין. אנא שנה את הפרמטרים.")
         else:
             st.warning("אין מספיק נתוני תזרים מזומנים לחישוב DCF.")
             
