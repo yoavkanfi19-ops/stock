@@ -1,5 +1,6 @@
 import streamlit as st
 import yfinance as yf
+import pandas as pd
 import json
 import os
 import time
@@ -8,13 +9,10 @@ st.set_page_config(page_title="Professional Stock Deep-Dive", layout="wide")
 
 def get_stock_data(symbol):
     filename = f"{symbol}.json"
-    # משיכת נתונים עם בדיקת זמן (רענון פעם בשעה)
     if os.path.exists(filename):
-        file_time = os.path.getmtime(filename)
-        if (time.time() - file_time) < 3600:
+        if (time.time() - os.path.getmtime(filename)) < 3600:
             with open(filename, 'r') as f:
                 return json.load(f)
-    
     ticker = yf.Ticker(symbol)
     data = ticker.info
     with open(filename, 'w') as f:
@@ -22,13 +20,13 @@ def get_stock_data(symbol):
     return data
 
 st.title("🛡️ Financial Deep-Dive Pro")
-symbol = st.sidebar.text_input("סימול מניה (למשל NVDA):", "NVDA").upper()
+symbol = st.sidebar.text_input("סימול מניה:", "NVDA").upper()
 
 if st.sidebar.button("נתח מניה"):
     try:
         data = get_stock_data(symbol)
         
-        # אזור מדדים ראשיים
+        # --- חלק 1: מדדים ---
         c1, c2, c3 = st.columns(3)
         c1.metric("מחיר נוכחי", f"${data.get('currentPrice', 0):.2f}")
         c2.metric("מכפיל רווח", f"{data.get('trailingPE', 0):.2f}")
@@ -36,30 +34,40 @@ if st.sidebar.button("נתח מניה"):
         
         st.write("---")
         
-        # ניתוח "באפטולוגיה" מורחב
-        st.subheader("📊 ניתוח באפטולוגיה")
-        col_a, col_b = st.columns(2)
+        # --- חלק 2: 12 החוקים (טבלה) ---
+        st.subheader("📊 ניתוח 12 החוקים (באפטולוגיה)")
+        rules_data = [
+            {"חוק": "רווח נקי > 20%", "מצב": "✅" if data.get('profitMargins', 0) > 0.2 else "❌", "נתון": f"{data.get('profitMargins', 0)*100:.1f}%"},
+            {"חוק": "יחס חוב להון < 0.8", "מצב": "✅" if (data.get('debtToEquity', 100)/100) < 0.8 else "❌", "נתון": f"{data.get('debtToEquity', 100)/100:.2f}"},
+            {"חוק": "תשואה על נכסים (ROA)", "מצב": "✅" if data.get('returnOnAssets', 0) > 0.1 else "❌", "נתון": f"{data.get('returnOnAssets', 0)*100:.1f}%"}
+        ]
+        st.table(pd.DataFrame(rules_data))
         
-        with col_a:
-            is_good_margin = data.get('profitMargins', 0) > 0.2
-            st.write(f"רווח נקי > 20%: {'✅ חיובי' if is_good_margin else '❌ דורש בדיקה'}")
+        # --- חלק 3: DCF מקצועי ---
+        st.subheader("⚖️ ניתוח שווי פנימי (DCF)")
+        growth = st.slider("צמיחה שנתית צפויה (%)", 5, 25, 10) / 100
+        discount_rate = st.slider("ריבית היוון (WACC) (%)", 5, 15, 10) / 100
+        
+        fcf = data.get('freeCashflow', 0)
+        shares = data.get('sharesOutstanding', 1)
+        
+        if fcf and shares:
+            terminal_val = (fcf * (1 + growth)) / (discount_rate - growth)
+            intrinsic_val = terminal_val / shares
             
-            roa = data.get('returnOnAssets', 0)
-            st.write(f"תשואה על נכסים (ROA): {roa*100:.1f}%")
-
-        with col_b:
-            debt_to_equity = data.get('debtToEquity', 100) / 100
-            st.write(f"יחס חוב להון: {debt_to_equity:.2f} {'(טוב)' if debt_to_equity < 0.8 else '(גבוה)'}")
+            dcf_data = {
+                "פרמטר": ["תזרים מזומנים חופשי (FCF)", "שיעור צמיחה", "ריבית היוון", "שווי פנימי למניה"],
+                "ערך": [f"${fcf:,.0f}", f"{growth*100}%", f"{discount_rate*100}%", f"${intrinsic_val:,.2f}"]
+            }
+            st.table(pd.DataFrame(dcf_data))
             
-            st.info("💡 טיפ: באפט מחפש חברות עם 'Moat' (חפיר) רחב – מותג חזק, יתרון לגודל ועלויות מעבר גבוהות.")
-
-        # סימולטור הערכת שווי פשוט
-        st.write("---")
-        st.subheader("🎯 הערכת שווי (לפי רווח עתידי משוער)")
-        growth_rate = st.slider("קצב צמיחה שנתי משוער (%)", 5, 25, 12)
-        eps = data.get('trailingEps', 1)
-        future_val = eps * ((1 + growth_rate/100) ** 10)
-        st.write(f"רווח למניה משוער בעוד 10 שנים: **${future_val:.2f}**")
+            margin = (1 - (data.get('currentPrice', 1) / intrinsic_val)) * 100
+            if margin > 0:
+                st.success(f"מרווח ביטחון (Margin of Safety): {margin:.1f}%")
+            else:
+                st.error("המניה נסחרת מעל השווי הפנימי המשוער.")
+        else:
+            st.warning("אין מספיק נתוני תזרים מזומנים לחישוב DCF.")
             
     except Exception as e:
-        st.error("לא ניתן למשוך נתונים כרגע. וודא שהסימול תקין.")
+        st.error(f"שגיאה: {e}")
